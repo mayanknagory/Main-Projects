@@ -1,0 +1,463 @@
+---
+title: "Abalone Project"
+output: html_notebook
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r}
+library(here)
+library(GGally)
+library(readr)
+library(CCA)
+library(CCP)
+library(MASS)
+library(psych)
+library(knitr)
+library(dplyr)
+library(e1071)
+library(MVN)
+library(purrr)
+library(faraway)
+```
+
+```{r}
+
+```
+
+**Exploratory Data Analysis**
+
+```{r}
+abal <- read_csv(here("datasets","abalone.csv"))
+
+```
+
+```{r}
+aba <- abal%>% mutate(Sex=factor(Sex))
+```
+
+```{r}
+aba
+```
+
+```{r}
+summary(aba)
+```
+
+```{r}
+ggpairs(aba[,c(1:4)], aes(colour=Sex, alpha = 0.3))
+```
+
+In order to separate infants from the other abalone, We store the infant
+abalone in dataset **iab**
+
+```{r}
+ iab <- aba %>% filter(Sex =="I") 
+ iab 
+```
+
+The rest of the adult abalone in dataset **fmab**
+
+```{r}
+fmab <-aba %>% filter(Sex !="I")
+fmab
+```
+
+We test for the difference in length, diameter, height of an infant
+ablone and adult abalone with Welch two sample t- tests
+
+```{r}
+t.test(iab$Length,fmab$Length)
+```
+
+```{r}
+t.test(iab$Diameter,fmab$Diameter)
+```
+
+```{r}
+t.test(iab$Height, fmab$Height)
+```
+
+The p value of less than 2.2 x 10\^-16 in the three tests above shows
+that the length, diameter, height of infant abalone is not similar to
+adult abalone. These features can therefore be used to distinguish
+between infants and adults.
+
+A 95% confidence interval is used to correctly identify an infant
+abalone from it Length Diameter and Height.
+
+```{r}
+t.test(iab$Length)
+```
+
+```{r}
+t.test(iab$Diameter)
+```
+
+```{r}
+t.test(iab$Height)
+```
+
+|              |          |                          |
+|--------------|----------|--------------------------|
+|              | **Mean** | **95% Confidence range** |
+| **Length**   | 85.54 mm | 84.38 mm to 86.71 mm     |
+| **Diameter** | 65.3 mm  | 64.35 mm to 66.24 mm     |
+| **Height**   | 21.6 mm  | 21.25 mm to 21.94 mm     |
+
+**Table 1. Range of Length , Diameter and Height of Infant abalone at
+95% confidence**
+
+From the above table any abalone which has a Length up to 87mm, Diameter
+up to 67mm and Height up to 22mm can be considered as infants and
+therefore should be avoided from harvesting.
+
+For abalone beyond these dimensions we use a classification model which
+classifies an abalone based on its length, diameter and height.
+
+For this purpose we compare a Support Vector Machine model (SVM) ,
+Linear Discriminant Analysis (LDA) and Quadratic Discriminant Analysis
+(QDA)
+
+**Testing for Multivariate Normality of Length, Diameter and Height**
+
+```{r}
+(mvn(aba[,c(2,3,4)]))$univariateNormality
+```
+
+As the three independent variables are not univairate or multivariate
+normal, by default, SVM could the preferable classifier model
+
+**Support Vector Machine (SVM)**
+
+```{r}
+set.seed(111)
+ind <- sample(2, nrow(aba), 
+              replace = TRUE, 
+              prob = c(.8, .2))
+training <- aba[ind==1,]
+testing <- aba[ind==2,]
+```
+
+```{r}
+(tuasvm <- tune.svm(Sex ~ Length+ Diameter + Height,data=training,kernel="radial", gamma = 10^(-1:1), cost = 10^(-1:1)))
+```
+
+```{r}
+tuasvm$best.parameters
+```
+
+```{r}
+tuasvm$best.model
+```
+
+```{r}
+(asvm <- svm(Sex~Length + Diameter+ Height ,data = training, kernel="radial",gamma = tuasvm$best.parameters[1,1], cost = tuasvm$best.parameters[1,2], cross = 10))
+```
+
+```{r}
+plot(asvm, data = training, Length~Diameter)
+```
+
+```{r}
+plot(asvm, data = training, Length~Height)
+```
+
+```{r}
+plot(asvm, data = training, Diameter~Height)
+```
+
+```{r}
+pasvm <- predict(asvm, newdata = data.frame(Length = testing[,2], Diameter = testing[,3], Height = testing[,4]))
+```
+
+```{r}
+(tasvm <-table(truth = testing$Sex, prediction = pasvm))
+```
+
+```{r}
+sum(diag(tasvm)/sum(tasvm))*100
+```
+
+```{r}
+tasvm[1.1]/nrow(testing %>% filter(Sex =="F"))*100
+```
+
+```{r}
+tasvm[2,2]/nrow(testing %>% filter(Sex =="I"))*100
+```
+
+```{r}
+tasvm[3,3]/nrow(testing %>% filter(Sex =="M"))*100
+```
+
+The SVM model has an accuracy of 50.7%
+
+**Linear Discriminant Analysis (LDA)**
+
+```{r}
+summary(alda<- lda(Sex~Length + Diameter + Height, data = aba, CV = TRUE))
+```
+
+```{r}
+(talda <- table(Truth = aba$Sex, Prediction = alda$class))
+```
+
+```{r}
+sum(diag(talda)/sum(talda))*100
+```
+
+```{r}
+talda[1,1]/nrow(aba %>% filter(Sex =="F"))*100
+```
+
+```{r}
+talda[2,2]/nrow(aba %>% filter(Sex =="I"))*100
+```
+
+```{r}
+talda[3,3]/nrow(aba %>% filter(Sex =="M"))*100
+```
+
+The LDA model has an accuracy of 51.88%
+
+**Quadratic Discriminant analysis**
+
+```{r}
+summary(aqda<- qda(Sex~Length + Diameter + Height, data = aba, CV = TRUE))
+```
+
+```{r}
+(taqda <- table(Truth = aba$Sex, Prediction = aqda$class))
+```
+
+```{r}
+sum(diag(taqda)/sum(taqda))*100
+```
+
+```{r}
+taqda[1,1]/nrow(aba %>% filter(Sex =="F"))*100
+```
+
+```{r}
+talda[2,2]/nrow(aba %>% filter(Sex =="I"))*100
+```
+
+```{r}
+talda[3,3]/nrow(aba %>% filter(Sex =="M"))*100
+```
+
+The QDA model has an accuracy of 52.15%
+
+|                            |         |         |         |
+|----------------------------|---------|---------|---------|
+|                            | **SVM** | **LDA** | **QDA** |
+| **Female**                 | 11.15%  | 22.34%  | 14.38%  |
+| **Infant**                 | 74.89%  | 69.30%  | 69.29%  |
+| **Male**                   | 64.68%  | 61.85%  | 61.84%  |
+| **Overall**                | 50.76%  | 51.88%  | 52.15%  |
+| **Misclassification Rate** | 49.24%  | 48.22%  | 47.85%  |
+
+**Table 2. Classifier model accuracy**
+
+**Testing for Multivariate Normality of Viscera Weight and Shucked
+Weight**
+
+```{r}
+mvn(aba[,c(6,7)])
+```
+
+**Correlation Analysis**
+
+```{r}
+ggpairs(aba[,c(2,3,4,6,7)])
+```
+
+The two variables do not have univariate or multivariate normality
+
+Correlation between the independent variables Length, Diameter and
+Height
+
+```{r}
+cor(aba[,c(2,3,4)])
+```
+
+This shows shows that all the three independent variables are highly
+correlated indicating high multicollinearity. A correlation between
+length and diameter of 0.986 makes it possible for us to ignore one of
+them in our modelling. We will test for its effect on our modelling. We
+will however for now use all three Length, Diameter and Height.
+
+Correlation between the dependent variables Viscera Weight, Shucked
+Weight and Shell Weight
+
+```{r}
+cor(aba[,c(6,7,8)])
+```
+
+Checking for correlation between all, independent and dependent
+variables
+
+```{r}
+cor(aba[,c(2,3,4,6,7,8)])
+```
+
+This shows shows that all the three dependent variables are also highly
+correlated. Shell weight is of no commercial benefit and therefore can
+be ignored in our modelling.
+
+**Canonical Correlation Analysis**
+
+```{r}
+x<-aba[,c(2,3,4)]
+y<-aba[,c(6,7)]
+(abcor<-matcor(x,y))
+```
+
+```{r}
+img.matcor(abcor, type = 2)
+```
+
+```{r}
+summary(ccab <- cc(x,y))
+```
+
+```{r}
+ccab$xcoef
+```
+
+```{r}
+ccab$ycoef
+```
+
+```{r}
+ccab$cor
+```
+
+```{r}
+plt.cc(ccab, var.label = TRUE)
+```
+
+#### **Hypothesis Testing**
+
+```{r}
+n <- nrow(aba)
+p <- ncol(x)
+q <- ncol(y)
+```
+
+```{r}
+p.asym(ccab$cor, n, p, q, tstat = "Wilks")
+```
+
+```{r}
+p.asym(ccab$cor, n, p, q, tstat = "Pillai")
+```
+
+```{r}
+p.asym(ccab$cor, n, p, q, tstat = "Hotelling")
+```
+
+The three hypothesis tests broadly agree and as the p value for both
+canonical correlations is less than 0.05 we can consider that both
+canonical correlations are statically significant.
+
+However, as seen above are variables are not multivariate normal and the
+population size is small so these test may generate some errors
+
+**Permutation Testing**
+
+```{r}
+p.perm(x,y, type = "Wilks")
+```
+
+```{r}
+p.perm(x,y, type = "Hotelling")
+```
+
+```{r}
+p.perm(x,y, type = "Pillai")
+```
+
+The p value of 0 further confirms that the first canonical correlations
+are statistically significant.
+
+**Multivariate Linear Modeling and Analysis**
+
+We would build a linear model to predict shucked weight and visceral
+weight by regressing over independent variables of Length, Diameter and
+Height.
+
+```{r}
+amlm <- lm(cbind(`Shucked weight`,`Viscera weight`)~Length+Diameter+Height, data=aba)
+summary(amlm)
+```
+
+```{r}
+coef(amlm)
+```
+
+```{r}
+confint(amlm, level = 0.95)
+```
+
+```{r}
+vcov(amlm)
+```
+
+```{r}
+head(resid(amlm))
+```
+
+**Hypothesis Testing by ANOVA**
+
+```{r}
+anova(amlm, test="Wilks")
+```
+
+As we have seen above the correlation between Length and Diameter is
+0.98 making them highly correlated. We therefore test if diameter has an
+extra predictive effect on the shucked and viscera weights.
+
+```{r}
+ramlm<- lm(cbind(`Shucked weight`,`Viscera weight`)~Length+Height, data=aba)
+anova(amlm,ramlm)
+```
+
+This test gives a p value less than 0.05 and therefore conclude that
+Diameter has an effect on the prediction of shucked and viscera weight
+
+```{r}
+predict(amlm, newdata = testing[1:5,] ,interval ='confidence')
+```
+
+**Pearson Residuals**
+
+```{r}
+sds <- amlm %>% estVar %>% diag %>% sqrt
+PR <- sweep(resid(amlm), 2, sds,)
+ggpairs(as_tibble(PR))
+```
+
+```{r}
+res<- resid(amlm)
+plot(fitted(amlm), res)
+abline(0,0)
+```
+
+The above two graphs of residues show that this linear model is good fit
+for the given data.
+
+We can therefore conclude that we have a linear model for each, shucked
+and viscera weight
+
+**Viscera Weight = -48.339 + 0.502 Length + 0.255 Diameter + 0.391
+Height**
+
+**Shucked Weight = -99.107 + 1.352 Length + 0.474 Diameter + 0.476
+Height**
+
+Please access the original RMD file from
+
+<https://drive.google.com/file/d/1jneyhTl8bTup8qs_N19h3H0BOcQbzBzd/view?usp=share_link>
